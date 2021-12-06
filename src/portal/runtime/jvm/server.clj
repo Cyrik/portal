@@ -86,9 +86,10 @@
   {:status  200
    :headers {"Content-Type" "text/javascript"}
    :body
-   (case (-> request :session :options :mode)
+   (case :omni
+    :omni (io/file "/Users/lukas/Workspace/clojure/startupTest/target/resources/omni-show/main.js")
      :dev (io/file "target/resources/portal/main.js")
-     (slurp (io/resource "portal/main.js")))})
+    (slurp (io/resource "portal/main.js")))})
 
 (defn- get-session-id [request]
   ;; There might be a referrer which is not a UUID in standalone mode.

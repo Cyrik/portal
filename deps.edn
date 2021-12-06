@@ -10,7 +10,12 @@
    :extra-deps
    {babashka/babashka     {:mvn/version "0.6.4"}
     hiccup/hiccup         {:mvn/version "2.0.0-alpha2"}
-    ns-tracker/ns-tracker {:mvn/version "0.4.0"}}}
+    ns-tracker/ns-tracker {:mvn/version "0.4.0"}
+    org.clojure/tools.deps.alpha
+               {:git/url "https://github.com/clojure/tools.deps.alpha"
+                :sha     "d77476f3d5f624249462e275ae62d26da89f320b"}
+    omni-trace/omni-trace {:local/root "../../omni-trace"}
+    philoskim/debux {:mvn/version "0.8.1"}}}
   :cljs
   {:extra-deps
    {borkdude/sci              {:mvn/version "0.2.7"}

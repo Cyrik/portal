@@ -91,4 +91,4 @@
     (-open-editor
      (assoc location
             :editor
-            (get-in rt/*session* [:options :launcher] :emacs)))))
+            (get-in rt/*session* [:options :launcher] :vs-code)))))

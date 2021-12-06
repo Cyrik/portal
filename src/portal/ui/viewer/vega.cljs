@@ -4,6 +4,7 @@
             [clojure.spec.alpha :as sp]
             [clojure.string :as str]
             [portal.colors :as c]
+            [portal.ui.state :as state]
             [portal.ui.inspector :as ins]
             [portal.ui.styled :as s]
             [portal.ui.theme :as theme]))
@@ -93,9 +94,17 @@
      #js [(.-current ref)])
     [ref rect]))
 
+(defn add-signal-listner [value signal command]
+  (. (.-view value) addSignalListener signal
+     (fn [name value]
+       (.log js/console [name (js->clj value :keywordize-keys true)])
+       (state/invoke command name (js->clj value :keywordize-keys true)))))
+
 (defn vega-embed [opts value]
   (let [theme (theme/use-theme)
         doc (deep-merge (default-config theme) value {:title ""})
+
+        portal-opts (:portal-opts value)
 
         view             (react/useRef nil)
         [init set-init!] (react/useState false)
@@ -112,6 +121,8 @@
          (-> (vegaEmbed el (clj->js (assoc doc :width width)) (clj->js opts))
              (.then (fn [value]
                       (set! (.-current view) (.-view value))
+                      (doseq [{:keys [:signal :command]} portal-opts]
+                        (add-signal-listner value signal command))
                       (set-init! true)))
              (.catch (fn [err] (js/console.error err)))))
        #(when-let [view (.-current view)]
