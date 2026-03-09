@@ -114,6 +114,15 @@
     (add-tap f)
     (fn [] (remove-tap f))))
 
+(defn watch-tap-list! [session-id callback]
+  (let [tap-atom @#'rt/tap-list
+        key      [:portal.ssr/tap-list session-id]
+        f        (fn [_ _ old-taps new-taps]
+                   (when (<= (count new-taps) (count old-taps))
+                     (callback session-id old-taps new-taps)))]
+    (add-watch tap-atom key f)
+    (fn [] (remove-watch tap-atom key))))
+
 (defn cleanup! [session-id]
   (cancel-cleanup! session-id)
   (swap! sessions dissoc session-id))

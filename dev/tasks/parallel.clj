@@ -74,7 +74,7 @@
     (try
       (binding [*out*  out
                 *err*  err
-                *opts* (cond-> *opts* *portal* (assoc-in [:extra-env "PORTAL_PORT"] port))]
+                *opts* (cond-> *opts* *portal* (assoc-in [:extra-env "PORTAL_PORT"] (str port)))]
         (let [result (apply f args)]
           (append-result sessions id result)
           result))

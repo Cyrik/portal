@@ -22,7 +22,8 @@
     (vector? v)  (str/join " " (map value->css v))
     :else        (str v)))
 
-(def ^:private css-unitless #{:opacity :z-index :flex :flex-grow :flex-shrink :order :font-weight})
+(def ^:private css-unitless #{:opacity :z-index :flex :flex-grow :flex-shrink :order :font-weight
+                              :grid-row :grid-column})
 
 (defn- style->css [style]
   (reduce-kv
@@ -61,7 +62,8 @@
     (vector? hiccup)
     (let [[tag & rest] hiccup]
       (if (= :<> tag)
-        (render-children rest)
+        (let [rest (if (map? (first rest)) (next rest) rest)]
+          (render-children rest))
         (let [[attrs children] (if (map? (first rest))
                                  [(first rest) (next rest)]
                                  [nil rest])]

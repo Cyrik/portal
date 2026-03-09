@@ -48,6 +48,15 @@
        "data: mode prepend\n"
        (sse-encode-html html-str) "\n\n"))
 
+(defn- send-full! [proto session-id ch]
+  (let [state (session/get-state session-id)
+        html  (viewer/render-page-html state proto)]
+    (case proto
+      :a (http/send! ch (sse-patch-elements html) false)
+      :b (http/send! ch
+           (json/write {"op" "full" "id" "tap-list" "html" html})
+           false))))
+
 ;; -- Reconcile on connect --
 
 (defn- stored-matches-tail?
@@ -132,17 +141,23 @@
          ;; Reconcile missed taps
          (reconcile! session-id)
          ;; Push full page re-render
-         (let [state (session/get-state session-id)
-               html  (viewer/render-page-html state :a)]
-           (http/send! ch (sse-patch-elements html) false))
-         ;; Register tap watcher
-         (let [cleanup (session/watch-taps! session-id
-                         (fn [sid vid _value]
-                           (when-let [sse-ch (session/get-channel sid)]
-                             (let [state (session/get-state sid)]
-                               (when (empty? (:nav-stack state))
-                                 (let [html (viewer/render-value-html state vid :a)]
-                                   (http/send! sse-ch (sse-patch-prepend "#tap-list" html) false)))))))]
+         (send-full! :a session-id ch)
+         ;; Register watchers
+         (let [cleanup-taps (session/watch-taps! session-id
+                              (fn [sid vid _value]
+                                (when-let [sse-ch (session/get-channel sid)]
+                                  (let [state (session/get-state sid)]
+                                    (when (empty? (:nav-stack state))
+                                      (let [html (viewer/render-value-html state vid :a)]
+                                        (http/send! sse-ch (sse-patch-prepend "#tap-list" html) false)))))))
+               cleanup-tap-list (session/watch-tap-list! session-id
+                                  (fn [sid _old-taps _new-taps]
+                                    (when-let [sse-ch (session/get-channel sid)]
+                                      (reconcile! sid)
+                                      (send-full! :a sid sse-ch))))
+               cleanup (fn []
+                         (cleanup-tap-list)
+                         (cleanup-taps))]
            ;; Store cleanup fn
            (swap! session/sessions assoc-in [session-id :tap-cleanup] cleanup)))
 
@@ -250,21 +265,25 @@
          ;; Reconcile
          (reconcile! session-id)
          ;; Push full page state
-         (let [state (session/get-state session-id)
-               html  (viewer/render-page-html state :b)]
-           (http/send! ch
-             (json/write {"op" "full" "id" "tap-list" "html" html})
-             false))
-         ;; Register tap watcher
-         (let [cleanup (session/watch-taps! session-id
-                         (fn [sid vid _value]
-                           (when-let [ws-ch (session/get-channel sid)]
-                             (let [state (session/get-state sid)]
-                               (when (empty? (:nav-stack state))
-                                 (let [html (viewer/render-value-html state vid :b)]
-                                   (http/send! ws-ch
-                                     (json/write {"op" "prepend" "id" "tap-list" "html" html})
-                                     false)))))))]
+         (send-full! :b session-id ch)
+         ;; Register watchers
+         (let [cleanup-taps (session/watch-taps! session-id
+                              (fn [sid vid _value]
+                                (when-let [ws-ch (session/get-channel sid)]
+                                  (let [state (session/get-state sid)]
+                                    (when (empty? (:nav-stack state))
+                                      (let [html (viewer/render-value-html state vid :b)]
+                                        (http/send! ws-ch
+                                          (json/write {"op" "prepend" "id" "tap-list" "html" html})
+                                          false)))))))
+               cleanup-tap-list (session/watch-tap-list! session-id
+                                  (fn [sid _old-taps _new-taps]
+                                    (when-let [ws-ch (session/get-channel sid)]
+                                      (reconcile! sid)
+                                      (send-full! :b sid ws-ch))))
+               cleanup (fn []
+                         (cleanup-tap-list)
+                         (cleanup-taps))]
            (swap! session/sessions assoc-in [session-id :tap-cleanup] cleanup)))
 
        :on-receive

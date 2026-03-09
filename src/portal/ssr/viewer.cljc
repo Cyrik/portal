@@ -71,6 +71,7 @@
        (and (sequential? v) (int? k)) (nth v k nil)
        (set? v) (nth (seq v) k nil)
        (seqable? v) (nth (seq v) k nil)
+       (tagged-literal? v) (get v k)
        :else nil))
    value
    path))
@@ -94,6 +95,7 @@
                         #?@(:clj [(instance? java.util.Map v) (.get ^java.util.Map v k)])
                         (and (sequential? v) (int? k)) (nth v k nil)
                         (seqable? v) (nth (seq v) k nil)
+                        (tagged-literal? v) (get v k)
                         :else nil)]
         (recur next-v (rest remaining) ancestors)))))
 
@@ -167,18 +169,28 @@
 ;; -- Scalar rendering --
 
 (defn- scalar [ctx value]
-  (let [theme (:theme ctx)
-        [color text]
-        (cond
-          (nil? value)     [(::c/text theme) "nil"]
-          (boolean? value) [(::c/boolean theme) (str value)]
-          (number? value)  [(::c/number theme) (str value)]
-          (string? value)  [(::c/string theme) (pr-str value)]
-          (keyword? value) [(::c/keyword theme) (str value)]
-          (symbol? value)  [(::c/symbol theme) (str value)]
-          (uuid? value)    [(::c/tag theme) (str "#uuid \"" value "\"")]
-          :else            [(::c/text theme) (pr-str value)])]
-    [:span {:style {:color color}} text]))
+  (let [theme (:theme ctx)]
+    (cond
+      #?@(:clj
+          [(instance? java.net.URI value)
+           (let [s (str value)]
+             [:a {:href s :target "_blank" :style {:color (::c/uri theme)}} s])])
+
+      :else
+      (let [[color text]
+            (cond
+              (nil? value)     [(::c/text theme) "nil"]
+              (boolean? value) [(::c/boolean theme) (str value)]
+              (number? value)  [(::c/number theme) (str value)]
+              (string? value)  [(::c/string theme) (pr-str value)]
+              (keyword? value) [(::c/keyword theme) (str value)]
+              (symbol? value)  [(::c/symbol theme) (str value)]
+              (uuid? value)    [(::c/tag theme) (str "#uuid \"" value "\"")]
+              (inst? value)    [(::c/tag theme) (pr-str value)]
+              (char? value)    [(::c/string theme) (pr-str value)]
+              #?@(:clj [(ratio? value) [(::c/number theme) (str value)]])
+              :else            [(::c/text theme) (pr-str value)])]
+        [:span {:style {:color color}} text]))))
 
 ;; -- Tree rendering --
 
@@ -277,10 +289,25 @@
              (show-more-btn ctx))]
           [:span {:style {:color bracket-c}} close]]))]))
 
-(defn- inspect [ctx value]
+(defn- try-sort [coll]
+  (try (sort coll) (catch #?(:clj Exception :cljs :default) _ (seq coll))))
+
+(defn- inspector-render [ctx value _opts]
   (cond
+    (nil? value)
+    (scalar ctx value)
+
     (cycle? ctx value)
     [:span {:style {:color (::c/exception (:theme ctx))}} "\u21BB cycle"]
+
+    #?@(:clj [(instance? Throwable value)
+              (inspect ctx (Throwable->map value))])
+
+    (tagged-literal? value)
+    (let [child-ctx (-> ctx (update :path conj :form) (update :depth inc))]
+      [:span
+       [:span {:style {:color (::c/tag (:theme ctx))}} (str "#" (:tag value) " ")]
+       (inspect child-ctx (:form value))])
 
     (map? value)
     (tree-map ctx value)
@@ -296,6 +323,206 @@
 
     :else
     (scalar ctx value)))
+
+(def ^:private inspector-viewer
+  {:name   :portal.viewer/inspector
+   :render inspector-render})
+
+(defn- pr-str-render [ctx value _opts]
+  [:pre {:style {:color       (::c/text (:theme ctx))
+                 :margin      "0"
+                 :font-family "monospace"
+                 :white-space "pre-wrap"
+                 :word-wrap   "break-word"}}
+   (pr-str value)])
+
+(def ^:private pr-str-viewer
+  {:name   :portal.viewer/pr-str
+   :render pr-str-render})
+
+;; -- Table viewer --
+
+(defn- table-view? [value]
+  (or (and (sequential? value) (every? map? value))
+      (map? value)))
+
+(defn- viewer-opts [opts value viewer-name]
+  (or (get opts viewer-name)
+      (get (meta value) viewer-name)))
+
+(defn- coll-of-maps-table [ctx value opts]
+  (let [theme    (:theme ctx)
+        vopts    (viewer-opts opts value :portal.viewer/table)
+        columns  (or (:columns vopts)
+                     (try-sort (distinct (mapcat keys value))))
+        num-cols (count columns)
+        expanded (is-expanded? ctx)
+        total    (count value)]
+    [:div {:id (node-id (:value-id ctx) (:path ctx))}
+     (toggle-btn ctx expanded)
+     (if-not expanded
+       (select-summary ctx (str total " rows × " num-cols " cols"))
+       (let [limit    (effective-limit ctx)
+             rows     (take limit value)
+             has-more (> total limit)
+             ctx      (with-ancestor ctx value)]
+         [:div {:style {:display               "grid"
+                        :grid-template-columns (str "repeat(" (inc num-cols) ", max-content)")
+                        :border                (str "1px solid " (::c/border theme))
+                        :font-size             "0.95em"
+                        :overflow-x            "auto"}}
+          ;; Corner cell
+          [:div {:style {:grid-row      1
+                         :grid-column   1
+                         :position      "sticky"
+                         :left          0
+                         :top           0
+                         :z-index       3
+                         :background    (::c/background2 theme)
+                         :border-bottom (str "1px solid " (::c/border theme))
+                         :border-right  (str "1px solid " (::c/border theme))
+                         :padding       "4px 8px"}}]
+          ;; Column headers
+          (for [[ci col] (map-indexed vector columns)]
+            [:div {:key   (str "ch-" ci)
+                   :style {:grid-row      1
+                           :grid-column   (+ ci 2)
+                           :position      "sticky"
+                           :top           0
+                           :z-index       2
+                           :background    (::c/background2 theme)
+                           :border-bottom (str "1px solid " (::c/border theme))
+                           :border-right  (str "1px solid " (::c/border theme))
+                           :padding       "4px 8px"
+                           :font-weight   "bold"}}
+             (scalar ctx col)])
+          ;; Data rows
+          (for [[ri row] (map-indexed vector rows)]
+            [:<> {:key (str "r-" ri)}
+             ;; Row index
+             [:div {:style {:grid-row      (+ ri 2)
+                            :grid-column   1
+                            :position      "sticky"
+                            :left          0
+                            :z-index       1
+                            :background    (::c/background2 theme)
+                            :border-bottom (str "1px solid " (::c/border theme))
+                            :border-right  (str "1px solid " (::c/border theme))
+                            :padding       "4px 8px"
+                            :color         (::c/text theme)
+                            :opacity       0.5}}
+              (str ri)]
+             ;; Cells
+             (for [[ci col] (map-indexed vector columns)]
+               (let [child-path (conj (:path ctx) ri col)
+                     child-ctx  (-> ctx
+                                    (assoc :path child-path)
+                                    (update :depth inc))]
+                 [:div {:key   (str "c-" ri "-" ci)
+                        :style {:grid-row      (+ ri 2)
+                                :grid-column   (+ ci 2)
+                                :border-bottom (str "1px solid " (::c/border theme))
+                                :border-right  (str "1px solid " (::c/border theme))
+                                :padding       "4px 8px"}}
+                  (when (contains? row col)
+                    (inspect child-ctx (get row col)))]))])
+          (when has-more
+            [:div {:style {:grid-column "1 / -1"
+                           :padding    "4px 8px"}}
+             (show-more-btn ctx)])]))]))
+
+(defn- map-table [ctx value _opts]
+  (let [theme    (:theme ctx)
+        expanded (is-expanded? ctx)
+        total    (count value)]
+    [:div {:id (node-id (:value-id ctx) (:path ctx))}
+     (toggle-btn ctx expanded)
+     (if-not expanded
+       (select-summary ctx (str total " items"))
+       (let [entries  (try-sort (map-entries value))
+             limit    (effective-limit ctx)
+             entries  (take limit entries)
+             has-more (> total limit)
+             ctx      (with-ancestor ctx value)]
+         [:div {:style {:display               "grid"
+                        :grid-template-columns "max-content auto"
+                        :border                (str "1px solid " (::c/border theme))
+                        :font-size             "0.95em"
+                        :overflow-x            "auto"}}
+          (for [[ri [k v]] (map-indexed vector entries)]
+            (let [child-path (conj (:path ctx) k)
+                  child-ctx  (-> ctx
+                                 (assoc :path child-path)
+                                 (update :depth inc))]
+              [:<> {:key (str "mr-" ri)}
+               [:div {:style {:grid-row      (inc ri)
+                              :grid-column   1
+                              :position      "sticky"
+                              :left          0
+                              :z-index       1
+                              :background    (::c/background2 theme)
+                              :border-bottom (str "1px solid " (::c/border theme))
+                              :border-right  (str "1px solid " (::c/border theme))
+                              :padding       "4px 8px"}}
+                (scalar ctx k)]
+               [:div {:style {:grid-row      (inc ri)
+                              :grid-column   2
+                              :border-bottom (str "1px solid " (::c/border theme))
+                              :padding       "4px 8px"}}
+                (inspect child-ctx v)]]))
+          (when has-more
+            [:div {:style {:grid-column "1 / -1"
+                           :padding    "4px 8px"}}
+             (show-more-btn ctx)])]))]))
+
+(defn- table-render [ctx value opts]
+  (cond
+    (cycle? ctx value)
+    [:span {:style {:color (::c/exception (:theme ctx))}} "\u21BB cycle"]
+
+    (and (sequential? value) (every? map? value))
+    (coll-of-maps-table ctx value opts)
+
+    :else
+    (map-table ctx value opts)))
+
+(def ^:private table-viewer
+  {:name      :portal.viewer/table
+   :predicate table-view?
+   :render    table-render})
+
+;; -- Viewer registry --
+
+(def ^:private viewers
+  [inspector-viewer pr-str-viewer table-viewer])
+
+(def ^:private viewers-by-name
+  (into {} (map (juxt :name identity)) viewers))
+
+(defn- resolve-viewer [hint value]
+  (if-let [viewer (get viewers-by-name hint)]
+    (if (or (nil? (:predicate viewer))
+            ((:predicate viewer) value))
+      viewer
+      inspector-viewer)
+    inspector-viewer))
+
+(defn- inspect [ctx value]
+  (let [meta-hint (when #?(:clj  (instance? clojure.lang.IMeta value)
+                           :cljs (satisfies? IMeta value))
+                    (:portal.viewer/default (meta value)))
+        [hint value opts]
+        (if (and (= :portal.viewer/hiccup meta-hint)
+                 (vector? value)
+                 (= :portal.viewer/inspector (first value))
+                 (map? (second value)))
+          ;; Non-IObj wrapper: extract hint, unwrap value, keep props as opts
+          (let [props (second value)]
+            [(:portal.viewer/default props) (nth value 2) props])
+          ;; Normal path: opts come from value metadata
+          [meta-hint value nil])
+        viewer (resolve-viewer hint value)]
+    ((:render viewer) ctx value opts)))
 
 ;; -- Public API --
 
