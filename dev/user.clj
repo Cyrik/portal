@@ -13,6 +13,15 @@
 
 (defn node [] (cljs :node))
 
+(defn ssr-urls
+  "Print SSR prototype URLs for the running Portal server."
+  []
+  (require 'portal.runtime.jvm.launcher)
+  (let [server @@(resolve 'portal.runtime.jvm.launcher/server)
+        {:keys [host port]} server]
+    (println (str "Proto A (Datastar): http://" host ":" port "/ssr/a"))
+    (println (str "Proto B (WebSocket): http://" host ":" port "/ssr/b"))))
+
 (comment
   (require '[portal.api :as p])
   (add-tap #'p/submit)
@@ -36,4 +45,5 @@
   (p/repl portal)
 
   (require '[examples.data :refer [data]])
+  (tap> [123])
   (dotimes [_i 25] (tap> data)))

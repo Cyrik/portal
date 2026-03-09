@@ -59,4 +59,13 @@
          "-m" "shadow.cljs.devtools.cli"
          :watch #_:pwa :client :vs-code :vs-code-notebook #_:electron)))
 
+(defn nrepl
+  "Start nREPL server for editor connection."
+  []
+  (binding [*opts* {:inherit true}]
+    (build)
+    (clj "-M:dev:cider:cljs:shadow"
+         "-m" "nrepl.cmdline"
+         "--middleware" "[cider.nrepl/cider-middleware]")))
+
 (defn -main "Start dev server." [] (prepl) (dev))

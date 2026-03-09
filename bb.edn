@@ -7,6 +7,7 @@
          clean  tasks.clean/clean
          check  tasks.check/check
          dev    tasks.dev/-main
+         nrepl  tasks.dev/nrepl
          e2e    tasks.e2e/all
          fmt    tasks.format/fix
          docs   tasks.docs/-main

@@ -1,6 +1,7 @@
 (ns ^:no-doc portal.runtime.index)
 
-(defn html [{:keys [name version host port session-id code-url platform mode]
+(defn html [{:keys [name version host port session-id code-url platform mode
+                    extra-head body-content]
              :or   {name       "portal"
                     version    "0.62.2"
                     code-url   "main.js"
@@ -14,16 +15,20 @@
    "<meta name='viewport' content='width=device-width, initial-scale=1' />"
    "<meta name='theme-color' content='' />"
    "<link rel=\"icon\" href=\"/icon.svg\">"
+   (when extra-head extra-head)
    "</head>"
    "<body style=\"margin: 0; padding: 0; height: 100vh\">"
-   "<div id=\"root\"></div>"
+   "<div id=\"root\">"
+   (when body-content body-content)
+   "</div>"
    "<script>"
    (when host
      (str "window.PORTAL_HOST    = " (pr-str (str host ":" port)) ";"))
    (when session-id
      (str "window.PORTAL_SESSION = " (pr-str session-id) ";"))
    "</script>"
-   "<script src=\"" code-url "\"></script>"
+   (when code-url
+     (str "<script src=\"" code-url "\"></script>"))
    ;; wait.js will ensure headless chrome doesn't exit early
    (when (= mode :test) "<script src=\"wait.js\"></script>")
    "</body>"

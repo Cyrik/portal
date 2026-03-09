@@ -154,3 +154,6 @@
       {:status 307 :headers {"Location" (str "?" session-id)}})))
 
 (defn handler [request] (route (with-session request)))
+
+;; Load SSR route extensions after route multimethod is defined
+(require 'portal.ssr.server)
