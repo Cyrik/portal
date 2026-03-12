@@ -4,15 +4,18 @@
 
 (defonce sessions (atom {}))
 
-;; Ensure tap> flows into Portal's tap-list. add-tap uses a set,
-;; so adding the same var is idempotent even if the user also calls it.
-;; Uses requiring-resolve to avoid circular load dependency:
+;; Ensure tap> flows into Portal's tap-list. Deferred to first session
+;; creation to avoid circular load dependency:
 ;; portal.api → jvm.launcher → jvm.server → ssr.server → ssr.session → portal.api
-(defn ensure-tap! []
-  (when-let [submit (requiring-resolve 'portal.api/submit)]
-    (add-tap submit)))
+(defonce ^:private tap-registered? (atom false))
+
+(defn- ensure-tap! []
+  (when (compare-and-set! tap-registered? false true)
+    (when-let [submit (requiring-resolve 'portal.api/submit)]
+      (add-tap submit))))
 
 (defn ensure! [session-id]
+  (ensure-tap!)
   (get
    (swap! sessions
           (fn [s]
