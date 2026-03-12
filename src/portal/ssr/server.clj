@@ -14,6 +14,9 @@
 ;; portal.runtime.jvm.server, so the route multimethod is already defined.
 ;; We reference it by fully qualified symbol to avoid circular dependency.
 
+;; Safe to register tap here — portal.api is loadable by the time this ns loads.
+(session/ensure-tap!)
+
 (def ^:private cleanup-timeout-ms (* 5 60 1000)) ; 5 minutes
 
 ;; -- Query param parsing --

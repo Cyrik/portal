@@ -6,9 +6,11 @@
 
 ;; Ensure tap> flows into Portal's tap-list. add-tap uses a set,
 ;; so adding the same var is idempotent even if the user also calls it.
-(defonce ^:private _ensure-portal-tap
-  (do (require 'portal.api)
-      (add-tap (resolve 'portal.api/submit))))
+;; Uses requiring-resolve to avoid circular load dependency:
+;; portal.api → jvm.launcher → jvm.server → ssr.server → ssr.session → portal.api
+(defn ensure-tap! []
+  (when-let [submit (requiring-resolve 'portal.api/submit)]
+    (add-tap submit)))
 
 (defn ensure! [session-id]
   (get
